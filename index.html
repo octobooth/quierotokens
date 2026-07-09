@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>¡Quiero Tokens! — Wheel of Luck</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, #1a0533 0%, #0d001a 70%);
+      color: #fff;
+      overflow: hidden;
+    }
+
+    /* ── Neon title ────────────────────────────────────────────── */
+    h1 {
+      font-size: clamp(1.6rem, 4vw, 2.8rem);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      text-shadow:
+        0 0 6px  #d400ff,
+        0 0 14px #d400ff,
+        0 0 30px #a000ff;
+      user-select: none;
+    }
+    h1 span { color: #f9d72f; text-shadow: 0 0 8px #f9d72f, 0 0 20px #f9a600; }
+
+    /* ── Wheel wrapper ─────────────────────────────────────────── */
+    .wheel-wrap {
+      position: relative;
+      width: min(420px, 90vw);
+      height: min(420px, 90vw);
+      filter: drop-shadow(0 0 22px #9b00ff88);
+    }
+
+    /* pointer / ticker */
+    .pointer {
+      position: absolute;
+      top: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left:  14px solid transparent;
+      border-right: 14px solid transparent;
+      border-top:   30px solid #f9d72f;
+      filter: drop-shadow(0 0 6px #f9a600);
+      z-index: 10;
+    }
+
+    canvas#wheel {
+      display: block;
+      border-radius: 50%;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Center hub ────────────────────────────────────────────── */
+    .hub {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #f9d72f 0%, #f9a600 60%, #c47000 100%);
+      box-shadow: 0 0 12px 4px #f9a60099;
+      z-index: 5;
+    }
+
+    /* ── Spin button ───────────────────────────────────────────── */
+    button#spin {
+      padding: .75rem 2.4rem;
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      background: linear-gradient(135deg, #d400ff, #7700dd);
+      color: #fff;
+      box-shadow: 0 0 14px #d400ff88, 0 4px 12px #00000066;
+      transition: transform .1s, box-shadow .1s;
+      user-select: none;
+    }
+    button#spin:hover:not(:disabled) {
+      transform: scale(1.06);
+      box-shadow: 0 0 24px #d400ffcc, 0 4px 20px #00000066;
+    }
+    button#spin:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    /* ── Result banner ─────────────────────────────────────────── */
+    #result {
+      min-height: 3rem;
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-align: center;
+      transition: opacity .3s;
+    }
+    #result.win  { color: #f9d72f; text-shadow: 0 0 10px #f9a600; }
+    #result.lose { color: #cc88ff; text-shadow: 0 0 10px #9b00ff; }
+
+    /* ── Stars decoration ──────────────────────────────────────── */
+    .stars {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -1;
+    }
+    .stars span {
+      position: absolute;
+      border-radius: 50%;
+      background: #fff;
+      opacity: 0;
+      animation: twinkle var(--d, 3s) var(--delay, 0s) infinite ease-in-out;
+    }
+    @keyframes twinkle {
+      0%,100% { opacity: 0; transform: scale(.6); }
+      50%      { opacity: .85; transform: scale(1); }
+    }
+
+    /* ── Confetti ──────────────────────────────────────────────── */
+    .confetti-piece {
+      position: fixed;
+      top: -20px;
+      border-radius: 2px;
+      opacity: 0;
+      pointer-events: none;
+      animation: fall 1.6s ease-in forwards;
+      z-index: 999;
+    }
+    @keyframes fall {
+      0%   { opacity: 1; transform: translateY(0)       rotate(0deg); }
+      100% { opacity: 0; transform: translateY(100vh)   rotate(720deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Stars bg -->
+  <div class="stars" id="stars"></div>
+
+  <h1>¡Quiero <span>Tokens</span>!</h1>
+
+  <div class="wheel-wrap">
+    <div class="pointer"></div>
+    <canvas id="wheel" width="600" height="600"></canvas>
+    <div class="hub"></div>
+  </div>
+
+  <button id="spin">🎰 Spin!</button>
+
+  <div id="result"></div>
+
+<script>
+// ── Segment data ────────────────────────────────────────────────
+const SEGMENTS = [];
+for (let i = 0; i < 20; i++) {
+  if (i % 4 === 0) {               // every 4th slot → 5 winners
+    SEGMENTS.push({ label: '🎟️ 2 Tickets', win: true });
+  } else {
+    SEGMENTS.push({ label: '🔄 +1 Token', win: false });
+  }
+}
+
+// ── Palette ─────────────────────────────────────────────────────
+const WIN_COLORS  = ['#f9d72f', '#f9a600'];   // gold alternating
+const LOSE_COLORS = ['#5c0080', '#7700dd'];   // purple alternating
+const TEXT_COLOR  = '#ffffff';
+
+// ── Canvas setup ────────────────────────────────────────────────
+const canvas = document.getElementById('wheel');
+const ctx    = canvas.getContext('2d');
+const N      = SEGMENTS.length;          // 20
+const STEP   = (2 * Math.PI) / N;
+const CX     = canvas.width  / 2;
+const CY     = canvas.height / 2;
+const RADIUS = CX - 4;
+
+let currentAngle = 0;   // total rotation in radians
+let spinning     = false;
+
+// ── Draw wheel ───────────────────────────────────────────────────
+function drawWheel(rotation) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  SEGMENTS.forEach((seg, i) => {
+    const start = rotation + i * STEP;
+    const end   = start + STEP;
+    const mid   = start + STEP / 2;
+
+    // Fill
+    ctx.beginPath();
+    ctx.moveTo(CX, CY);
+    ctx.arc(CX, CY, RADIUS, start, end);
+    ctx.closePath();
+    const palette = seg.win ? WIN_COLORS : LOSE_COLORS;
+    ctx.fillStyle = palette[i % 2];
+    ctx.fill();
+
+    // Subtle border
+    ctx.strokeStyle = '#ffffff22';
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+
+    // Label
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.rotate(mid);
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = TEXT_COLOR;
+    ctx.font         = `bold ${canvas.width * 0.038}px Segoe UI, system-ui, sans-serif`;
+    ctx.shadowColor  = '#00000099';
+    ctx.shadowBlur   = 4;
+    ctx.fillText(seg.label, RADIUS - 14, 0);
+    ctx.restore();
+  });
+
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(CX, CY, RADIUS, 0, 2 * Math.PI);
+  ctx.strokeStyle = '#f9d72f';
+  ctx.lineWidth   = 6;
+  ctx.stroke();
+}
+
+// ── Which segment is at top (pointer) ───────────────────────────
+function getResultIndex(rotation) {
+  // Pointer is at the top = -π/2. Normalize.
+  const normalized = (((-rotation) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  return Math.floor(normalized / STEP) % N;
+}
+
+// ── Spin ─────────────────────────────────────────────────────────
+const btn    = document.getElementById('spin');
+const result = document.getElementById('result');
+
+btn.addEventListener('click', () => {
+  if (spinning) return;
+  spinning = true;
+  btn.disabled = true;
+  result.textContent = '';
+  result.className   = '';
+
+  // Random extra spin: 5–8 full turns + random offset
+  const extraTurns = (5 + Math.random() * 3) * 2 * Math.PI;
+  const randomStop = Math.random() * 2 * Math.PI;
+  const totalDelta = extraTurns + randomStop;
+
+  const duration  = 4000 + Math.random() * 1000; // 4–5 s
+  const startTime = performance.now();
+  const startAngle = currentAngle;
+
+  function easeOut(t) {
+    // Cubic ease-out
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  function animate(now) {
+    const elapsed  = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const easedProgress = easeOut(progress);
+
+    currentAngle = startAngle + totalDelta * easedProgress;
+    drawWheel(currentAngle);
+
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      spinning = false;
+      btn.disabled = false;
+      showResult();
+    }
+  }
+
+  requestAnimationFrame(animate);
+});
+
+function showResult() {
+  const idx = getResultIndex(currentAngle);
+  const seg  = SEGMENTS[idx];
+  if (seg.win) {
+    result.textContent = '🎉 You won 2 Tickets! Congratulations!';
+    result.className   = 'win';
+    launchConfetti();
+  } else {
+    result.textContent = '🔄 Try Again — here's 1 Token!';
+    result.className   = 'lose';
+  }
+}
+
+// ── Confetti ──────────────────────────────────────────────────────
+const CONFETTI_COLORS = ['#f9d72f','#d400ff','#00e5ff','#ff4081','#69ff47','#f9a600'];
+function launchConfetti() {
+  for (let i = 0; i < 60; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti-piece';
+    el.style.cssText = `
+      left: ${Math.random() * 100}vw;
+      width: ${6 + Math.random() * 8}px;
+      height: ${12 + Math.random() * 8}px;
+      background: ${CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)]};
+      animation-delay: ${Math.random() * .6}s;
+      animation-duration: ${1.2 + Math.random() * .8}s;
+    `;
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+  }
+}
+
+// ── Star field ────────────────────────────────────────────────────
+const starsEl = document.getElementById('stars');
+for (let i = 0; i < 80; i++) {
+  const s = document.createElement('span');
+  const sz = 1 + Math.random() * 2.5;
+  s.style.cssText = `
+    width: ${sz}px; height: ${sz}px;
+    top:  ${Math.random() * 100}%;
+    left: ${Math.random() * 100}%;
+    --d: ${2 + Math.random() * 4}s;
+    --delay: ${Math.random() * 5}s;
+  `;
+  starsEl.appendChild(s);
+}
+
+// ── Initial draw ──────────────────────────────────────────────────
+drawWheel(0);
+</script>
+</body>
+</html>
